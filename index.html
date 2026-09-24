@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Object Detection and Tracking</title>
+
+    <!-- TensorFlow.js -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+
+    <!-- COCO-SSD Object Detection Model -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            background: #f2f2f2;
+            margin: 0;
+            padding: 20px;
+        }
+
+        h1 {
+            margin-bottom: 5px;
+        }
+
+        #status {
+            margin: 10px;
+            font-size: 18px;
+            font-weight: bold;
+        }
+
+        .container {
+            position: relative;
+            width: 800px;
+            max-width: 95%;
+            margin: auto;
+        }
+
+        video {
+            width: 100%;
+            display: block;
+            border-radius: 10px;
+        }
+
+        canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+
+        button {
+            margin: 15px;
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            border: none;
+            border-radius: 6px;
+            background: #222;
+            color: white;
+        }
+
+        button:hover {
+            background: #444;
+        }
+    </style>
+</head>
+
+<body>
+
+    <h1>Object Detection and Tracking</h1>
+
+    <div id="status">Loading model...</div>
+
+    <button onclick="startCamera()">Start Camera</button>
+
+    <div class="container">
+        <video id="video" autoplay muted playsinline></video>
+        <canvas id="canvas"></canvas>
+    </div>
+
+<script>
+
+    const video = document.getElementById("video");
+    const canvas = document.getElementById("canvas");
+    const ctx = canvas.getContext("2d");
+    const statusText = document.getElementById("status");
+
+    let model;
+
+    // Tracking variables
+    let nextID = 1;
+    let trackedObjects = [];
+
+    // Load the pretrained model
+    async function loadModel() {
+
+        statusText.innerText = "Loading object detection model...";
+
+        model = await cocoSsd.load();
+
+        statusText.innerText =
+            "Model loaded. Click Start Camera.";
+
+        console.log("Model loaded successfully");
+    }
+
+    // Start webcam
+    async function startCamera() {
+
+        try {
+
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: true,
+                audio: false
+            });
+
+            video.srcObject = stream;
+
+            video.onloadedmetadata = () => {
+
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+
+                statusText.innerText =
+                    "Camera started. Detecting objects...";
+
+                detectObjects();
+            };
+
+        } catch (error) {
+
+            console.error(error);
+
+            statusText.innerText =
+                "Camera permission denied or unavailable.";
+        }
+    }
+
+    // Calculate center of bounding box
+    function getCenter(box) {
+
+        return {
+            x: box[0] + box[2] / 2,
+            y: box[1] + box[3] / 2
+        };
+    }
+
+    // Calculate distance between two points
+    function distance(a, b) {
+
+        const dx = a.x - b.x;
+        const dy = a.y - b.y;
+
+        return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    // Simple object tracking
+    function trackObjects(detections) {
+
+        let newTrackedObjects = [];
+
+        detections.forEach(detection => {
+
+            const box = detection.bbox;
+            const className = detection.class;
+            const center = getCenter(box);
+
+            let bestMatch = null;
+            let minDistance = 100;
+
+            trackedObjects.forEach(oldObject => {
+
+                if (oldObject.className === className) {
+
+                    const d = distance(center, oldObject.center);
+
+                    if (d < minDistance) {
+
+                        minDistance = d;
+                        bestMatch = oldObject;
+                    }
+                }
+            });
+
+            let id;
+
+            if (bestMatch) {
+                id = bestMatch.id;
+            } else {
+                id = nextID++;
+            }
+
+            newTrackedObjects.push({
+                id: id,
+                className: className,
+                center: center,
+                box: box
+            });
+
+        });
+
+        trackedObjects = newTrackedObjects;
+
+        return newTrackedObjects;
+    }
+
+    // Detect objects
+    async function detectObjects() {
+
+        if (!model) return;
+
+        const predictions = await model.detect(video);
+
+        const objects = trackObjects(predictions);
+
+        drawObjects(objects, predictions);
+
+        // Small delay to reduce CPU usage
+        setTimeout(detectObjects, 100);
+    }
+
+    // Draw bounding boxes and labels
+    function drawObjects(objects, predictions) {
+
+        ctx.clearRect(
+            0,
+            0,
+            canvas.width,
+            canvas.height
+        );
+
+        objects.forEach((object, index) => {
+
+            const box = object.box;
+
+            const x = box[0];
+            const y = box[1];
+            const width = box[2];
+            const height = box[3];
+
+            // Bounding box
+            ctx.strokeStyle = "#00ff00";
+            ctx.lineWidth = 3;
+
+            ctx.strokeRect(
+                x,
+                y,
+                width,
+                height
+            );
+
+            // Label background
+            ctx.fillStyle = "#00ff00";
+
+            ctx.fillRect(
+                x,
+                y - 30,
+                170,
+                30
+            );
+
+            // Label text
+            ctx.fillStyle = "#000";
+
+            ctx.font = "16px Arial";
+
+            ctx.fillText(
+                object.className +
+                " | ID: " +
+                object.id,
+                x + 5,
+                y - 10
+            );
+
+        });
+    }
+
+    // Load model when page opens
+    loadModel();
+
+</script>
+
+</body>
+</html>
+
